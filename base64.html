@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title></title>
+  <style type="text/css">
+    * {
+      box-sizing: border-box;
+    }
+    .input,
+    .output {
+      width: 400px;
+      height: 200px;
+    }
+    textarea {
+      width: 100%;
+      height: 100%;
+      padding: 10px;
+      resize: none;
+    }
+    .act {
+      width: 100px;
+    }
+    button {
+      display: block;
+      margin: 20px auto;
+      height: 30px;
+      padding: 0 12px;
+      border: 1px solid;
+      line-height: 30px;
+      color: #fff;
+      background: #e55;
+      outline: none;
+      text-align: center;
+      border-radius: 3px;
+      cursor: pointer;
+      transition: all .2s ease;
+    }
+    button:hover {
+      background: #e44;
+    }
+    .inline-block {
+      display: inline-block;
+      vertical-align: top;
+    }
+  </style>
+</head>
+<body>
+  <div class="input inline-block">
+    <textarea id="input-text"></textarea>
+  </div>
+  <div class="act inline-block">
+    <button id="encode">编码</button>
+    <button id="decode">解码</button>
+  </div>
+  <div class="output inline-block">
+    <textarea id="output-text" disabled></textarea>
+  </div>
+  <script type="text/javascript">
+  /**
+  * 转换对照表
+  * U+00000000 – U+0000007F   0xxxxxxx
+  * U+00000080 – U+000007FF   110xxxxx 10xxxxxx
+  * U+00000800 – U+0000FFFF   1110xxxx 10xxxxxx 10xxxxxx
+  * U+00010000 – U+0010FFFF   11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+  **/
+
+  // '严'的Unicode编码为：0x4E25，它介于U+00000800 – U+0000FFFF之间，所以它占用三个字节。
+
+
+  window.base64 = {
+      keyStr: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+      // 字符串转UTF8编码
+      encode_utf8: function(str) {
+        var result = '',
+          length = str.length;
+        for (var i = 0; i < length; i++) {
+          var ucode,
+            byte1,
+            byte2,
+            byte3,
+            byte4,
+            u8code;
+
+          ucode = str.charCodeAt(i);
+          if (ucode <= 0x007F) {
+            u8code = String.fromCharCode(ucode);
+          } else if (ucode > 0x007F && ucode <= 0x07FF) {
+            byte2 = 0x80 | (ucode & 0x3F);
+            byte1 = 0xC0 | ((ucode >> 6) & 0x1F);
+            u8code = String.fromCharCode(byte1) + String.fromCharCode(byte2);
+          } else if (ucode > 0x07FF && ucode <= 0xFFFF) {
+            byte3 = 0x80 | (ucode & 0x3F);
+            byte2 = 0x80 | ((ucode >> 6) & 0x3F);
+            byte1 = 0xE0 | ((ucode >> 12) & 0x0F);
+            u8code = String.fromCharCode(byte1) + String.fromCharCode(byte2) + String.fromCharCode(byte3);
+          } else if (ucode > 0xFFFF && ucode <= 0x10FFFF) {
+            byte4 = 0x80 | (ucode & 0x3F);
+            byte3 = 0x80 | ((ucode >> 6) & 0x3F);
+            byte2 = 0x80 | ((ucode >> 12) & 0x3F);
+            byte1 = 0xF0 | ((ucode >> 18) & 0x07);
+            u8code = String.fromCharCode(byte1) + String.fromCharCode(byte2) + String.fromCharCode(byte3) + String.fromCharCode(byte4);
+          }
+          result += u8code;
+        }
+        return result;
+      },
+      // UTF-8编码转字符串
+      decode_utf8: function(str) {
+        var result = '',
+          length = str.length;
+        for (var i = 0; i < length; i++) {
+          var u8code_1 = str.charCodeAt(i),
+            ucode;
+          if (u8code_1 >> 7 == 0) {
+            // 单字节
+            ucode = u8code_1;
+          } else if (u8code_1 >> 5 == 0x6) {
+            // 双字节
+            var u8code_2 = str.charCodeAt(i+1);
+
+            byte1 = u8code_1 & 0x1F;
+            byte2 = u8code_2 & 0x3F;
+            ucode = byte1 << 6 | byte2
+            i += 1;
+          } else if (u8code_1 >> 4 == 0xE) {
+            // 三字节
+            var u8code_2 = str.charCodeAt(i+1);
+            var u8code_3 = str.charCodeAt(i+2);
+
+            byte1 = u8code_1 & 0x0F;
+            byte2 = u8code_2 & 0x3F;
+            byte3 = u8code_3 & 0x3F;
+            ucode = byte1 << 12 | byte2 << 6 | byte3;
+            i += 2;
+          } else if (u8code_1 >> 3 == 0xF0) {
+            var u8code_2 = str.charCodeAt(i+1);
+            var u8code_3 = str.charCodeAt(i+2);
+            var u8code_4 = str.charCodeAt(i+3);
+
+            byte1 = u8code_1 & 0x7;
+            byte2 = u8code_2 & 0x3F;
+            byte3 = u8code_3 & 0x3F;
+            byte4 = u8code_4 & 0x3F;
+            ucode = byte1 << 18 | byte2 << 12 | byte3 << 6 | byte4;
+            i += 3;
+          }
+          result += String.fromCharCode(ucode);
+        }
+        return result;
+      },
+      // base64编码
+      encode_bs64: function(str) {
+        if (!str) {
+          return;
+        }
+        // 先将字符串转换为UTF-8
+        var u8code = this.encode_utf8(str),
+          length = u8code.length,
+          i = 0,
+          result = '',
+          char1,
+          char2,
+          char3,
+          index1,
+          index2,
+          index3,
+          index4,
+          encode1,
+          encode2,
+          encode3,
+          encode4;
+        // 再将UTF-8进行base64编码
+        while (i < length) {
+          char1 = u8code.charCodeAt(i++);
+          char2 = u8code.charCodeAt(i++);
+          char3 = u8code.charCodeAt(i++);
+
+          index1 = char1 >> 2;
+          encode1 = this.keyStr.charAt(index1);
+
+          index2 = ((char1 & 0x3) << 4) | (char2 >> 4);
+          encode2 = this.keyStr.charAt(index2);
+
+          index3 = ((char2 & 0x0F) << 2) | (char3 >> 6);
+          encode3 = this.keyStr.charAt(index3);
+
+          index4 = char3 & 0x3F;
+          encode4 = this.keyStr.charAt(index4);
+
+          // 最后使用'='补足位数为3的倍数
+          if (isNaN(char2)) {
+            encode4 = encode3 = '=';
+          } else if (isNaN(char3)) {
+            encode4 = '=';
+          }
+          result += encode1 + encode2 + encode3 + encode4;
+        }
+        return result;
+      },
+      // base64解码
+      decode_bs64: function(str) {
+        if (!str) {
+          return;
+        }
+        // 先base64解码成UTF-8
+        var length = str.length,
+          i = 0,
+          u8code = '',
+          result = '',
+          char1,
+          char2,
+          char3,
+          encode1,
+          encode2,
+          encode3,
+          encode4;
+        str = str.replace(/[^A-Za-z0-9\+\/\=]/g, "");
+        while (i < length) {
+          decode1 = this.keyStr.indexOf(str.charAt(i++));
+          decode2 = this.keyStr.indexOf(str.charAt(i++));
+          decode3 = this.keyStr.indexOf(str.charAt(i++));
+          decode4 = this.keyStr.indexOf(str.charAt(i++));
+
+          char1 = (decode1 << 2) | (decode2 >> 4);
+          char2 = ((decode2 & 0xF) << 4) | (decode3 >> 2);
+          char3 = ((decode3 & 0x3) << 6) | decode4;
+
+          u8code += String.fromCharCode(char1);
+          if (decode3 != -1) {
+            u8code += String.fromCharCode(char2);
+          }
+          if (decode4 != -1) {
+             u8code += String.fromCharCode(char3);
+          }
+        }
+        // 再将UTF-8转换成字符串
+        result = this.decode_utf8(u8code);
+        return result;
+      }
+    };
+
+  var btn_en = document.getElementById("encode"),
+    btn_de = document.getElementById("decode"),
+    input_text = document.getElementById('input-text'),
+    output_text = document.getElementById('output-text'),
+    b64,
+    d64;
+  btn_en.onclick = function() {
+    b64 = base64.encode_bs64(input_text.value);
+    output_text.value = b64;
+  }
+  btn_de.onclick = function() {
+    d64 = base64.decode_bs64(input_text.value);
+    output_text.value = d64;
+  }
+  </script>
+</body>
+</html>
